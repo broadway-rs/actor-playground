@@ -9,3 +9,5 @@ edition = "2018"
 [dependencies]
 switch-channel = {git = "https://github.com/broadway-rs/switch-channel", branch = "main", features = ["async_std"]}
 async-std = {version = "1.9.0", features = ["attributes"]}
+futures = "0.3.13"
+async-trait = "0.1.48"
