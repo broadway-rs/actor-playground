@@ -6,6 +6,7 @@ use switch_channel::err::recv::RecvError;
 use async_trait::async_trait;
 use std::ops::{Deref, DerefMut};
 use async_std::sync::RwLock;
+use async_std::channel::{Sender, Receiver, unbounded};
 
 #[async_std::main]
 async fn main() {
@@ -13,14 +14,14 @@ async fn main() {
     let (mut sender, instance) = ActorInstance::<dyn Greeter>::start();
     let mut i: i128 = 0;
     loop{
-        sender.greet().await;
+        println!("{}", sender.greet().await);
         if i % 100 == 0{
             sender.set_name(i.to_string()).await;
         }
         i += 1;
         // This demo still works without this, but you'll see much longer stretches of names
         // WHICH IS FINE, it's just clearing out mutable calls and building up slow println calls.
-        task::sleep(std::time::Duration::from_millis(1)).await;
+        //task::sleep(std::time::Duration::from_millis(1)).await;
     }
 }
 
@@ -88,6 +89,9 @@ impl<T: 'static + Role + ?Sized> ActorInstance<T>{
 
             match (call_fut.take(), mut_call_fut.take()){
                 (Some(call), Some(mut_call)) =>{
+                    // Not the biggest fan of this setup, but select
+                    // favors the left side so we need to swap to prevent
+                    // starvation
                     if priority{
                         match future::select(call, mut_call).await{
                             future::Either::Left((call, mut_call)) => {
@@ -162,7 +166,7 @@ trait MutHandler<T>: Send{
 pub trait Greeter{
     async fn set_name(&mut self, name: String);
 
-    async fn greet(&self);
+    async fn greet(&self) -> String;
 }
 
 pub struct GreeterActor{
@@ -175,8 +179,8 @@ impl Greeter for GreeterActor{
         self.name = name;
     }
 
-    async fn greet(&self){
-        println!("Hello! My name is {}", self.name);
+    async fn greet(&self) -> String{
+        format!("Hello! My name is {}", self.name)
     }
 }
 
@@ -191,36 +195,44 @@ impl Actor for GreeterActor{
 impl<'a> Role for dyn Greeter + 'a{
     type Actor = GreeterActor;
 
-    type Calls = GreeterCalls;
-    type MutCalls = GreeterMutCalls;
+    type Calls = Call<GreeterCall, GreeterReply>;
+    type MutCalls = Call<GreeterMutCall, GreeterReply>;
 }
 
-enum GreeterCalls{
+enum GreeterReply{
+    Greet(String),
+    SetName(()),
+}
+
+struct Call<C, R>{
+    return_channel: Sender<R>,
+    call: C
+}
+
+enum GreeterCall{
     Greet,
 }
 
-unsafe impl Send for GreeterCalls{}
+unsafe impl<T: Send, R: Send> Send for Call<T, R>{}
 
 #[async_trait]
-impl Handler<GreeterActor> for GreeterCalls{
+impl Handler<GreeterActor> for Call<GreeterCall, GreeterReply>{
     async fn handle(self, actor: &GreeterActor){
-        match self{
-            Self::Greet => GreeterActor::greet(actor).await,
+        match self.call{
+            GreeterCall::Greet => self.return_channel.send(GreeterReply::Greet(GreeterActor::greet(actor).await)).await,
         };
     }
 }
 
-enum GreeterMutCalls{
+enum GreeterMutCall{
     SetName(String)
 }
 
-unsafe impl Send for GreeterMutCalls{}
-
 #[async_trait]
-impl MutHandler<GreeterActor> for GreeterMutCalls{
+impl MutHandler<GreeterActor> for Call<GreeterMutCall, GreeterReply>{
     async fn handle_mut(self, actor: &mut GreeterActor){
-        match self{
-            Self::SetName(name) => GreeterActor::set_name(actor, name).await,
+        match self.call{
+            GreeterMutCall::SetName(name) => self.return_channel.send(GreeterReply::SetName(GreeterActor::set_name(actor, name).await)).await,
         };
     }
 }
@@ -228,10 +240,29 @@ impl MutHandler<GreeterActor> for GreeterMutCalls{
 #[async_trait]
 impl Greeter for ActorChannel<dyn Greeter>{
     async fn set_name(&mut self, name: std::string::String) {
-        self.mut_calls_sender.send(GreeterMutCalls::SetName(name)).await;
+        let (return_channel, receiver) = unbounded();
+        self.mut_calls_sender.send(
+            Call{
+                return_channel,
+                call: GreeterMutCall::SetName(name)
+            }
+        ).await;
+        receiver.recv().await.unwrap();
     }
 
-    async fn greet(&self) { 
-        self.calls_sender.send(GreeterCalls::Greet).await;
+    async fn greet(&self) -> String { 
+        let (return_channel, receiver) = unbounded();
+        self.calls_sender.send(
+            Call{
+                return_channel,
+                call: GreeterCall::Greet
+            }
+        ).await;
+        if let Ok(GreeterReply::Greet(greeting)) = receiver.recv().await{
+            greeting
+        }
+        else{
+            panic!("Ruh roh");
+        }
     }
 }
