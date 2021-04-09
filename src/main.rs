@@ -11,12 +11,15 @@ use async_std::channel::{Sender, Receiver, unbounded};
 #[async_std::main]
 async fn main() {
     println!("Hello, world!");
-    let (mut sender, instance) = ActorInstance::<dyn Greeter>::start();
+    let (sender, instance) = ActorInstance::<dyn Greeter>::start();
     let mut i: i128 = 0;
     loop{
-        println!("{}", sender.greet().await);
+        let mut sender = sender.clone();
         if i % 100 == 0{
-            sender.set_name(i.to_string()).await;
+            task::spawn(async move {sender.set_name(i.to_string()).await});
+        }
+        else{
+            task::spawn(async move {println!("{}", sender.greet().await)});
         }
         i += 1;
         // This demo still works without this, but you'll see much longer stretches of names
@@ -47,6 +50,15 @@ struct ActorInstance<T: Role + ?Sized>{
 struct ActorChannel<T: Role + ?Sized>{
     calls_sender: DiSwitchSender<T::Calls>,
     mut_calls_sender: DiSwitchSender<T::MutCalls>,
+}
+
+impl<T: Role + ?Sized> Clone for ActorChannel<T>{
+    fn clone(&self) -> Self { 
+        Self{
+            calls_sender: self.calls_sender.clone(),
+            mut_calls_sender: self.mut_calls_sender.clone(),
+        }    
+    }
 }
 
 impl<T: 'static + Role + ?Sized> ActorInstance<T>{
