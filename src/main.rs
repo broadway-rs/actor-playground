@@ -161,7 +161,16 @@ trait MutHandler<T>: Send{
     async fn handle_mut(self, actor: &mut T);
 }
 
+struct Call<C, R>{
+    return_channel: Sender<R>,
+    call: C
+}
 
+unsafe impl<T: Send, R: Send> Send for Call<T, R>{}
+
+// EVERYTHING FROM HERE TO THE NEXT COMMENT IS PRETTY MUCH
+// ALL AN END USER SHOULD NEED TO WRITE FOR AN ACTOR, EVERYTHING ELSE
+// SHOULD/COULD BE A LIBRARY ITEM OR MACRO GENERATED
 #[async_trait]
 pub trait Greeter{
     async fn set_name(&mut self, name: String);
@@ -192,6 +201,10 @@ impl Actor for GreeterActor{
     }
 }
 
+// IDEALLY THE END USER WOULD HAVE A MACRO THAT LOOKS LIKE THIS:
+// #[role(GreeterActor)]
+// That they would put over 'pub trait Greeter'
+// that would generate everything below this comment.
 impl<'a> Role for dyn Greeter + 'a{
     type Actor = GreeterActor;
 
@@ -204,16 +217,10 @@ enum GreeterReply{
     SetName(()),
 }
 
-struct Call<C, R>{
-    return_channel: Sender<R>,
-    call: C
-}
-
 enum GreeterCall{
     Greet,
 }
 
-unsafe impl<T: Send, R: Send> Send for Call<T, R>{}
 
 #[async_trait]
 impl Handler<GreeterActor> for Call<GreeterCall, GreeterReply>{
