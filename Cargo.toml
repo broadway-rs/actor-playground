@@ -1,0 +1,11 @@
+[package]
+name = "actor-playground"
+version = "0.1.0"
+authors = ["James Bell <jamesbell@microsoft.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+switch-channel = {git = "https://github.com/broadway-rs/switch-channel", branch = "main", features = ["async_std"]}
+async-std = {version = "1.9.0", features = ["attributes"]}
