@@ -11,3 +11,4 @@ switch-channel = {git = "https://github.com/broadway-rs/switch-channel", branch 
 async-std = {version = "1.9.0", features = ["attributes"]}
 futures = "0.3.13"
 async-trait = "0.1.48"
+broadway = {git = "https://github.com/broadway-rs/broadway", branch = "main"}
